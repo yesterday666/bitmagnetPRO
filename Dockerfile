@@ -19,7 +19,6 @@ FROM alpine:3.20
 RUN apk --update add \
     curl \
     iproute2-ss \
-    postgresql-client \
     && rm -rf /var/cache/apk/*
 
 COPY --from=build /build/bitmagnet /usr/bin/bitmagnet
