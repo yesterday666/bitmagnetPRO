@@ -11,15 +11,19 @@ COPY . /build
 
 WORKDIR /build
 
-RUN go build -ldflags "-s -w -X github.com/bitmagnet-io/bitmagnet/internal/version.GitTag=$(git describe --tags --always --dirty)"
+ENV GOPROXY https://goproxy.cn,direct
+RUN go env -w GOPROXY=https://goproxy.cn,direct && go build -ldflags "-s -w -X github.com/bitmagnet-io/bitmagnet/internal/version.GitTag=$(git describe --tags --always --dirty)"
 
 FROM alpine:3.20
 
 RUN apk --update add \
     curl \
     iproute2-ss \
+    postgresql-client \
     && rm -rf /var/cache/apk/*
 
 COPY --from=build /build/bitmagnet /usr/bin/bitmagnet
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-ENTRYPOINT ["bitmagnet"]
+ENTRYPOINT ["/entrypoint.sh"]

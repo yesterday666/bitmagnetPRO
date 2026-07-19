@@ -35,8 +35,9 @@ func (a serverAdapter) FindNode(
 	}
 
 	return FindNodeResult{
-		ID:    res.Msg.R.ID,
-		Nodes: extractNodes(res.Msg),
+		ID:     res.Msg.R.ID,
+		Nodes:  extractNodes(res.Msg),
+		Nodes6: extractNodes6(res.Msg),
 	}, nil
 }
 
@@ -54,6 +55,7 @@ func (a serverAdapter) GetPeers(
 		ID:     res.Msg.R.ID,
 		Values: extractValues(res.Msg),
 		Nodes:  extractNodes(res.Msg),
+		Nodes6: extractNodes6(res.Msg),
 	}, nil
 }
 
@@ -75,6 +77,7 @@ func (a serverAdapter) GetPeersScrape(
 		ID:        res.Msg.R.ID,
 		Values:    extractValues(res.Msg),
 		Nodes:     extractNodes(res.Msg),
+		Nodes6:    extractNodes6(res.Msg),
 		BfPeers:   *res.Msg.R.BFpe.ToBloomFilter(),
 		BfSeeders: *res.Msg.R.BFsd.ToBloomFilter(),
 	}, nil
@@ -113,6 +116,7 @@ func (a serverAdapter) SampleInfoHashes(
 		ID:       res.Msg.R.ID,
 		Samples:  samples,
 		Nodes:    extractNodes(res.Msg),
+		Nodes6:   extractNodes6(res.Msg),
 		Num:      totalNum,
 		Interval: interval,
 	}, nil
@@ -125,6 +129,20 @@ func extractNodes(msg dht.Msg) []NodeInfo {
 
 	nodes := make([]NodeInfo, 0, len(msg.R.Nodes))
 	for _, n := range msg.R.Nodes {
+		nodes = append(nodes, NodeInfo{ID: n.ID, Addr: n.Addr.ToAddrPort()})
+	}
+
+	return nodes
+}
+
+// extractNodes6 extracts IPv6 nodes from a DHT response Nodes6 field.
+func extractNodes6(msg dht.Msg) []NodeInfo {
+	if len(msg.R.Nodes6) == 0 {
+		return nil
+	}
+
+	nodes := make([]NodeInfo, 0, len(msg.R.Nodes6))
+	for _, n := range msg.R.Nodes6 {
 		nodes = append(nodes, NodeInfo{ID: n.ID, Addr: n.Addr.ToAddrPort()})
 	}
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -15,6 +16,18 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const blockedTorrentsBloomFilterKeyBase = "blocked_torrents"
+
+// perInstanceBloomFilterKey returns a hostname-specific key for bloom filter isolation.
+// Multiple bitmagnet instances sharing one PG database each get their own bloom filter row.
+func perInstanceBloomFilterKey() string {
+	host := os.Getenv("HOSTNAME")
+	if host == "" {
+		return blockedTorrentsBloomFilterKeyBase
+	}
+	return blockedTorrentsBloomFilterKeyBase + "_" + host
+}
 
 type Manager interface {
 	Filter(ctx context.Context, hashes []protocol.ID) ([]protocol.ID, error)
@@ -42,6 +55,12 @@ func (m *manager) Filter(ctx context.Context, hashes []protocol.ID) ([]protocol.
 		}
 	}
 
+	// Guard against nil/uninitialized filter (e.g. after corrupted bloom load)
+	if m.filter == nil {
+		def := bloom.NewDefaultStableBloomFilter()
+		m.filter = def
+	}
+
 	filtered := make([]protocol.ID, 0, len(hashes))
 
 	for _, hash := range hashes {
@@ -49,7 +68,7 @@ func (m *manager) Filter(ctx context.Context, hashes []protocol.ID) ([]protocol.
 			continue
 		}
 
-		if m.filter.Test(hash[:]) {
+		if m.safeTest(hash) {
 			continue
 		}
 
@@ -57,6 +76,20 @@ func (m *manager) Filter(ctx context.Context, hashes []protocol.ID) ([]protocol.
 	}
 
 	return filtered, nil
+}
+
+// safeTest wraps filter.Test with a recover to guard against panics
+// from corrupted or uninitialized internal filter state.
+func (m *manager) safeTest(hash protocol.ID) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Reinitialize the filter on panic
+			def := bloom.NewDefaultStableBloomFilter()
+			m.filter = def
+			ok = false
+		}
+	}()
+	return m.filter.Test(hash[:])
 }
 
 func (m *manager) Block(ctx context.Context, hashes []protocol.ID, flush bool) error {
@@ -87,10 +120,9 @@ func (m *manager) Flush(ctx context.Context) error {
 	return m.flush(ctx)
 }
 
-const blockedTorrentsBloomFilterKey = "blocked_torrents"
-
 func (m *manager) flush(ctx context.Context) error {
 	hashes := slices.Collect(maps.Keys(m.buffer))
+	bfKey := perInstanceBloomFilterKey()
 
 	tx, err := m.pool.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadWrite,
@@ -120,7 +152,7 @@ func (m *manager) flush(ctx context.Context) error {
 
 	var nullOid sql.NullInt32
 
-	err = tx.QueryRow(ctx, "SELECT oid FROM bloom_filters WHERE key = $1", blockedTorrentsBloomFilterKey).
+	err = tx.QueryRow(ctx, "SELECT oid FROM bloom_filters WHERE key = $1", bfKey).
 		Scan(&nullOid)
 	if err == nil {
 		found = true
@@ -145,8 +177,6 @@ func (m *manager) flush(ctx context.Context) error {
 	}
 
 	if oid == 0 {
-		// Create a new Large Object.
-		// We pass 0, so the DB can pick an available oid for us.
 		oid, err = lobs.Create(ctx, 0)
 		if err != nil {
 			return fmt.Errorf("failed to create large object: %w", err)
@@ -171,14 +201,14 @@ func (m *manager) flush(ctx context.Context) error {
 	if !found {
 		_, err = tx.Exec(ctx,
 			"INSERT INTO bloom_filters (key, oid, created_at, updated_at) VALUES ($1, $2, $3, $4)",
-			blockedTorrentsBloomFilterKey, oid, now, now)
+			bfKey, oid, now, now)
 		if err != nil {
 			return fmt.Errorf("failed to save new bloom filter record: %w", err)
 		}
 	} else if !nullOid.Valid {
 		_, err = tx.Exec(ctx,
 			"UPDATE bloom_filters SET oid = $1, updated_at = $2 WHERE key = $3",
-			oid, now, blockedTorrentsBloomFilterKey)
+			oid, now, bfKey)
 		if err != nil {
 			return fmt.Errorf("failed to update bloom filter record: %w", err)
 		}

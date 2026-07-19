@@ -38,8 +38,17 @@ func (c *crawler) runFindNode(ctx context.Context) {
 				Addr:    p.Addr(),
 				Options: []ktable.NodeOption{ktable.NodeResponded()},
 			})
-			// block this channel until all nodes can be added to the discoveredNodes channel
+			// Add all discovered IPv4 nodes
 			for _, n := range res.Nodes {
+				select {
+				case <-ctx.Done():
+					return
+				case c.discoveredNodes.In() <- ktable.NewNode(n.ID, n.Addr):
+					continue
+				}
+			}
+			// Add all discovered IPv6 nodes
+			for _, n := range res.Nodes6 {
 				select {
 				case <-ctx.Done():
 					return

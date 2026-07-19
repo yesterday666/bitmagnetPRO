@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/bitmagnet-io/bitmagnet/internal/protocol/dht/client"
 	"github.com/bitmagnet-io/bitmagnet/internal/protocol/dht/ktable"
 )
 
@@ -62,21 +63,28 @@ func (c *crawler) requestPeersForHash(
 		Options: []ktable.NodeOption{ktable.NodeResponded()},
 	})
 
-	if len(res.Nodes) > 0 {
-		// block the channel for up to a second in an attempt to add the nodes to the discoveredNodes channel
-		cancelCtx, cancel := context.WithTimeout(ctx, time.Second)
+	// block the channel for up to a second to add discovered nodes
+	cancelCtx, cancel := context.WithTimeout(ctx, time.Second)
 
-		for _, n := range res.Nodes {
+	addNodes := func(nodes []client.NodeInfo) {
+		for _, n := range nodes {
 			select {
 			case <-cancelCtx.Done():
-				break
+				return
 			case c.discoveredNodes.In() <- ktable.NewNode(n.ID, n.Addr):
 				continue
 			}
 		}
-
-		cancel()
 	}
+
+	if len(res.Nodes) > 0 {
+		addNodes(res.Nodes)
+	}
+	if len(res.Nodes6) > 0 {
+		addNodes(res.Nodes6)
+	}
+
+	cancel()
 
 	if len(res.Values) < 1 {
 		return infoHashWithPeers{}, errors.New("no peers found")

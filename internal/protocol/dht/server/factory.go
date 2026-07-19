@@ -50,7 +50,7 @@ func New(p Params) Result {
 					baseServer: &server{
 						stopped: make(chan struct{}),
 						localAddr: netip.AddrPortFrom(
-							netip.IPv4Unspecified(),
+							netip.IPv6Unspecified(),
 							p.Config.Port,
 						),
 						socket:           NewSocket(),

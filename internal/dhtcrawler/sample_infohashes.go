@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"net/netip"
 	"github.com/bitmagnet-io/bitmagnet/internal/protocol/dht/ktable"
 )
 
@@ -60,8 +61,6 @@ func (c *crawler) runSampleInfoHashes(ctx context.Context) {
 		}
 
 		interval := res.Interval
-		// most nodes request a 6 hour backoff time(!)
-		// if we're still discovering info hashes from them then let's set a respectful interval instead
 		if len(discoveredHashes) > 0 && interval > 300 {
 			interval = 60
 		}
@@ -76,14 +75,31 @@ func (c *crawler) runSampleInfoHashes(ctx context.Context) {
 			),
 		}})
 
-		if len(res.Nodes) > 0 {
-			// block on the channel for up to a second trying to add sampled nodes to the discoveredNodes
-			// channel
+		// Add discovered IPv4 AND IPv6 nodes
+		allNodes := make([]struct {
+			ID   [20]byte
+			Addr netip.AddrPort
+		}, 0, len(res.Nodes)+len(res.Nodes6))
+
+		for _, n := range res.Nodes {
+			allNodes = append(allNodes, struct {
+				ID   [20]byte
+				Addr netip.AddrPort
+			}{n.ID, n.Addr})
+		}
+		for _, n := range res.Nodes6 {
+			allNodes = append(allNodes, struct {
+				ID   [20]byte
+				Addr netip.AddrPort
+			}{n.ID, n.Addr})
+		}
+
+		if len(allNodes) > 0 {
 			go func() {
 				timeoutCtx, cancel := context.WithTimeout(ctx, time.Second)
 				defer cancel()
 
-				for _, n := range res.Nodes {
+				for _, n := range allNodes {
 					select {
 					case <-timeoutCtx.Done():
 						return

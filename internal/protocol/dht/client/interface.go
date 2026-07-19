@@ -21,20 +21,23 @@ type PingResult struct {
 }
 
 type FindNodeResult struct {
-	ID    protocol.ID
-	Nodes []NodeInfo
+	ID     protocol.ID
+	Nodes  []NodeInfo
+	Nodes6 []NodeInfo
 }
 
 type GetPeersResult struct {
 	ID     protocol.ID
 	Values []netip.AddrPort
 	Nodes  []NodeInfo
+	Nodes6 []NodeInfo
 }
 
 type GetPeersScrapeResult struct {
 	ID        protocol.ID
 	Values    []netip.AddrPort
 	Nodes     []NodeInfo
+	Nodes6    []NodeInfo
 	BfPeers   bloom.BloomFilter
 	BfSeeders bloom.BloomFilter
 }
@@ -43,6 +46,7 @@ type SampleInfoHashesResult struct {
 	ID       protocol.ID
 	Samples  []protocol.ID
 	Nodes    []NodeInfo
+	Nodes6   []NodeInfo
 	Num      int
 	Interval int
 }
